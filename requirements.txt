@@ -1,0 +1,11 @@
+torch==2.5.0+cu121
+torchvision==0.20.0+cu121
+transformers==4.45.0
+ultralytics==8.3.0
+easyocr==1.7.1
+opencv-python==4.10.0
+pandas==2.2.0
+numpy==1.26.0
+pillow==10.4.0
+bitsandbytes==0.44.0
+accelerate==0.35.0
