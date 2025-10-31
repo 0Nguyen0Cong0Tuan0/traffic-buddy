@@ -1,2 +1,2 @@
-data/public_test
-data/train
+data/processed/
+data/raw/
