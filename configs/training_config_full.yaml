@@ -3,24 +3,23 @@
 
 # Model settings - FULL MODE
 model:
-  model_name: "Qwen/Qwen2.5-VL-7B-Instruct"  # Full 7B model
-  mode: "full"                               # Enable full mode
+  model_name: Qwen/Qwen2.5-VL-7B-Instruct    # Full 7B model
+  mode: full                                 # Enable full mode
   use_lora: true                             # Use LoRA for efficient training
   lora_r: 16                                 # LoRA rank
   lora_alpha: 32                             # LoRA alpha
   lora_dropout: 0.05                         # LoRA dropout
   load_in_4bit: true                         # 4-bit quantization (saves memory)
   load_in_8bit: false                        # 8-bit quantization
-  torch_dtype: "bfloat16"                    # bfloat16 for better precision
+  torch_dtype: bfloat16                      # bfloat16 for better precision
   cpu_offload: false  
 
 # Data settings
 data:
-  train_json: "data/processed/train_split.json"
-  val_json: "data/processed/val_split.json"
-  video_root: "data/"
+  train_json: data/processed/train_split.json
+  val_json: data/processed/val_split.json
+  video_root: data/
   num_frames: 8                             # Number of frames per video
-  image_size: [224, 224]                    # Image size (H, W)
   use_support_frames: true                  # Prioritize support_frames
 
 # Training settings

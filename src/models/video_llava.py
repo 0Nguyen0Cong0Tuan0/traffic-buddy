@@ -210,71 +210,137 @@ class VietnameseTrafficVQAModel(nn.Module):
         return outputs
     
     def prepare_inputs(
-        self,
+        self, 
         frames: torch.Tensor,  # (B, T, C, H, W)
-        prompts: List[str],
+        prompts: List[str], 
         answers: Optional[List[str]] = None
     ) -> Dict[str, torch.Tensor]:
         batch_size = frames.shape[0]
         
+        # Convert frames to list of numpy arrays for processor
         videos_list = []
         for i in range(batch_size):
-            video = frames[i]
-            video = video.permute(0, 2, 3, 1)
+            video = frames[i]  # (T, C, H, W)
+            video = video.permute(0, 2, 3, 1)  # (T, H, W, C)
             video = video.cpu().numpy()
+            
+            # Ensure values are in [0, 255] range
             if video.max() <= 1.0:
                 video = (video * 255).astype('uint8')
-            videos_list.append(video)
+            else:
+                video = video.astype('uint8')
+                
+            # Convert to list of frames
+            video_frames = [video[j] for j in range(video.shape[0])]
+            videos_list.append(video_frames)
         
-        video_inputs = self.processor.image_processor(
-            images=videos_list,
-            return_tensors="pt"
-        )
-        logger.info(f"Video inputs shape: {video_inputs['pixel_values'].shape}")
-        
-        num_frames = frames.shape[1]
-        
-        texts = []
-        for prompt, answer in zip(prompts, answers or [None] * batch_size):
-            system_message = "Bạn là một trợ lý AI chuyên về luật giao thông Việt Nam."
-            vision_tokens = "<|vision_start|><|vision_end|>" * num_frames
-            user_message = f"{vision_tokens}\n{prompt}"
+        messages_list = []
+        for idx, (prompt, answer) in enumerate(zip(prompts, answers or [None] * batch_size)):
+            messages = [
+                {
+                    "role": "system", 
+                    "content": "Bạn là một trợ lý AI chuyên về luật giao thông Việt Nam."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "video",
+                            "video": videos_list[idx],  # Use the actual video for this sample
+                            "fps": 1.0  # Add fps parameter
+                        },
+                        {
+                            "type": "text", 
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
             
-            text = f"<|im_start|>system\n{system_message}<|im_end|>\n<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
-            
-            logger.info(f"Raw text: {text}")
-            
+            # Add assistant response if answer is provided (for training)
             if answer is not None:
-                text += answer + "<|im_end|>"
+                messages.append({
+                    "role": "assistant", 
+                    "content": answer
+                })
             
-            texts.append(text)
+            messages_list.append(messages)
         
-        text_inputs = self.processor.tokenizer(
-            texts,
+        # Apply chat template to get formatted text
+        texts = [
+            self.processor.apply_chat_template(
+                msg, 
+                tokenize=False, 
+                add_generation_prompt=(answers is None or answers[0] is None)
+            ) 
+            for msg in messages_list
+        ]
+        
+        logger.info(f"Formatted text example (first 500 chars): {texts[0][:500]}")
+        
+        # Process inputs with the processor
+        # Important: Pass videos in the correct format
+        inputs = self.processor(
+            text=texts,
+            videos=videos_list,
             padding=True,
             return_tensors="pt"
         )
         
-        logger.info(f"Tokenized input_ids: {text_inputs['input_ids']}")
-        logger.info(f"Tokenized input_ids shape: {text_inputs['input_ids'].shape}")
+        logger.info(f"Processor output keys: {inputs.keys()}")
+        logger.info(f"Input_ids shape: {inputs['input_ids'].shape}")
         
+        if 'pixel_values_videos' in inputs:
+            logger.info(f"Pixel values videos shape: {inputs['pixel_values_videos'].shape}")
+        if 'video_grid_thw' in inputs:
+            logger.info(f"Video grid thw: {inputs['video_grid_thw']}")
+        
+        # Verify vision tokens are present
         vision_start_id = self.processor.tokenizer.convert_tokens_to_ids('<|vision_start|>')
         vision_end_id = self.processor.tokenizer.convert_tokens_to_ids('<|vision_end|>')
-        for i, input_ids in enumerate(text_inputs['input_ids']):
+        video_pad_id = self.processor.tokenizer.convert_tokens_to_ids('<|video_pad|>')
+        
+        for i, input_ids in enumerate(inputs['input_ids']):
             vision_start_count = (input_ids == vision_start_id).sum().item()
             vision_end_count = (input_ids == vision_end_id).sum().item()
-            logger.info(f"Sample {i}: vision_start tokens: {vision_start_count}, vision_end tokens: {vision_end_count}")
+            video_pad_count = (input_ids == video_pad_id).sum().item()
+            logger.info(
+                f"Sample {i}: vision_start={vision_start_count}, "
+                f"vision_end={vision_end_count}, video_pad={video_pad_count}"
+            )
+            
+            if vision_start_count == 0:
+                logger.error(f"WARNING: No vision tokens found in sample {i}!")
+                logger.error(f"Input IDs: {input_ids[:50]}")
+                logger.error(f"Decoded text: {self.processor.tokenizer.decode(input_ids[:100])}")
         
-        inputs = {
-            "input_ids": text_inputs["input_ids"],
-            "attention_mask": text_inputs["attention_mask"],
-            "pixel_values_videos": video_inputs["pixel_values"],
-            "video_grid_thw": video_inputs["image_grid_thw"]
-        }
-        
+        # Create labels for training
         if answers is not None and answers[0] is not None:
             labels = inputs["input_ids"].clone()
+            
+            # Mask padding tokens
             labels[labels == self.processor.tokenizer.pad_token_id] = -100
+            
+            # Find assistant response start and mask everything before it
+            for i in range(batch_size):
+                # Find the last <|im_start|> which marks the assistant's turn
+                im_start_id = self.processor.tokenizer.convert_tokens_to_ids('<|im_start|>')
+                assistant_positions = (inputs["input_ids"][i] == im_start_id).nonzero(as_tuple=True)[0]
+                
+                if len(assistant_positions) > 0:
+                    # Mask everything up to and including the last <|im_start|>
+                    last_im_start = assistant_positions[-1].item()
+                    labels[i, :last_im_start + 1] = -100
+                    
+                    # Also need to find "assistant\n" text after <|im_start|>
+                    # and mask it too
+                    assistant_text_ids = self.processor.tokenizer.encode(
+                        "assistant\n", 
+                        add_special_tokens=False
+                    )
+                    # Mask a few more tokens to skip "assistant\n"
+                    labels[i, :last_im_start + len(assistant_text_ids) + 1] = -100
+            
             inputs["labels"] = labels
         
         return inputs

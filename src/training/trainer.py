@@ -156,45 +156,35 @@ class Trainer:
         return {'loss': avg_loss}
     
     def _training_step(self, batch: Dict) -> float:
-        """
-        Single training step
-        """
-        # Move batch to device
+        """Execute single training step with gradient accumulation."""
         frames = batch['frames'].to(self.device)
         prompts = batch['prompts']
         answers = batch['answers']
         
         # Prepare inputs
         inputs = self.model.prepare_inputs(frames, prompts, answers)
-        
-        # Move inputs to device (only tensors)
         inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
-                 for k, v in inputs.items()}
+                for k, v in inputs.items()}
         
-        # Forward pass with mixed precision
+        # Forward pass with optional mixed precision
         if self.use_amp and torch.cuda.is_available():
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast():
                 outputs = self.model(**inputs)
                 loss = outputs.loss / self.gradient_accumulation_steps
-            
-            # Backward pass
             self.scaler.scale(loss).backward()
         else:
             outputs = self.model(**inputs)
             loss = outputs.loss / self.gradient_accumulation_steps
             loss.backward()
         
-        # Gradient accumulation
+        # Update weights after accumulating gradients
         if (self.global_step + 1) % self.gradient_accumulation_steps == 0:
             if self.use_amp and torch.cuda.is_available():
-                # Unscale gradients and clip
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     self.max_grad_norm
                 )
-                
-                # Optimizer step
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
@@ -204,9 +194,11 @@ class Trainer:
                 )
                 self.optimizer.step()
             
+            # Step scheduler
             if self.scheduler is not None:
                 self.scheduler.step()
             
+            # Zero gradients
             self.optimizer.zero_grad()
         
         return loss.item() * self.gradient_accumulation_steps

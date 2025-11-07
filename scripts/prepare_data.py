@@ -42,7 +42,6 @@ def test_dataloader(
         json_path=split_json,
         video_root=video_root,
         num_frames=8,
-        image_size=(224, 224),
         use_support_frames=True,
         max_samples=num_samples
     )

@@ -4,7 +4,7 @@ Data augmentation for video frames
 
 import numpy as np
 import cv2
-from typing import List, Tuple
+from typing import Tuple
 import random
 
 class VideoAugmentation:

@@ -20,7 +20,6 @@ data:
   val_json: data/processed/val_split.json
   video_root: data/
   num_frames: 8                             
-  image_size: [224, 224]                  
   use_support_frames: true                  # Still use support frames
 
 # Training settings - OPTIMIZED for weak machines

@@ -20,7 +20,6 @@ class VietnameseTrafficDataset(Dataset):
         json_path: str,
         video_root: str,
         num_frames: int = 8,
-        image_size: Tuple[int, int] = (224, 224),
         use_support_frames: bool = True,
         transform=None,
         max_samples: Optional[int] = None
@@ -30,7 +29,6 @@ class VietnameseTrafficDataset(Dataset):
             json_path: Path to train.json or test.json
             video_root: Root directory containing videos
             num_frames: Number of frames to sample from video
-            image_size: Target image size (height, width)
             use_support_frames: Whether to prioritize support_frames
             transform: Optional transform to apply to frames
             max_samples: Maximum number of samples (for debugging)
@@ -38,7 +36,6 @@ class VietnameseTrafficDataset(Dataset):
         self.json_path = json_path
         self.video_root = Path(video_root)
         self.num_frames = num_frames
-        self.image_size = image_size
         self.use_support_frames = use_support_frames
         self.transform = transform
         
@@ -80,7 +77,7 @@ class VietnameseTrafficDataset(Dataset):
 
         return {
             'id': sample['id'],
-            'frames': frames, # Shape: (num_frames, H, w, C)
+            'frames': frames,  # Shape: (num_frames, H, W, C) where H, W are video's original size
             'question': question,
             'choices': choices,
             'prompt': prompt,
@@ -95,58 +92,123 @@ class VietnameseTrafficDataset(Dataset):
         support_frames: List[float]
     ) -> np.ndarray:
         """
-        Extract frames from video
+        Extract frames from video at original resolution
         Args:
             video_path: Path to video file
             support_frames: List of timestamps (in seconds) of important frames
         Returns:
-            frames: numpy array of shape (num_frames, H, W, C)
+            frames: numpy array of shape (num_frames, H, W, C) where H, W are video's original size
         """
-        cap = cv2.VideoCapture(video_path)
-
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            # Return black frames if video cannot be opened
-            return np.zeros((self.num_frames, *self.image_size, 3), dtype=np.uint8)
+        # Debug: Check if video path exists
+        logger.info(f"Attempting to open video: {video_path}")
+        if not os.path.exists(video_path):
+            logger.error(f"Video file does not exist: {video_path}")
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)  # Fallback size
         
+        # Debug: Check file permissions and size
+        try:
+            file_size = os.path.getsize(video_path)
+            logger.info(f"Video file size: {file_size} bytes")
+        except OSError as e:
+            logger.error(f"Error accessing video file: {e}")
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)  # Fallback size
+
+        # Initialize video capture
+        cap = cv2.VideoCapture(video_path)
+        
+        # Debug: Check if video capture opened successfully
+        if not cap.isOpened():
+            logger.error(f"Failed to open video with OpenCV: {video_path}")
+            logger.info(f"OpenCV version: {cv2.__version__}")
+            logger.info(f"Available backends: {cv2.videoio_registry.getBackends()}")
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)  # Fallback size
+        
+        # Get video properties
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         fps = cap.get(cv2.CAP_PROP_FPS)
+        # Get original video dimensions
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         duration = total_frames / fps if fps > 0 else 0
+        logger.info(f"Video info - Total frames: {total_frames}, FPS: {fps}, Duration: {duration:.2f}s, "
+                    f"Resolution: {frame_width}x{frame_height}")
 
         # Determine which frames to extract
         if self.use_support_frames and support_frames:
             frame_indices = self._get_support_frame_indices(support_frames, fps, total_frames)
         else:
-            # Uniform sampling
             frame_indices = np.linspace(0, total_frames - 1, self.num_frames, dtype=int)
         
+        # Debug: Log frame indices
+        logger.info(f"Frame indices to extract: {frame_indices.tolist()}")
+
         # Extract frames
         frames = []
         for frame_idx in frame_indices:
+            logger.debug(f"Attempting to read frame {frame_idx}")
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             ret, frame = cap.read()
             
             if ret:
-                # Resize frame
-                frame = cv2.resize(frame, self.image_size)
-                # Convert BGR to RGB
+                logger.debug(f"Successfully read frame {frame_idx}")
+                # Convert BGR to RGB, no resizing or cropping
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame)
             else:
+                logger.warning(f"Failed to read frame {frame_idx}")
                 # Use last valid frame or black frame
                 if frames:
+                    logger.debug(f"Using last valid frame for index {frame_idx}")
                     frames.append(frames[-1])
                 else:
-                    frames.append(np.zeros((*self.image_size, 3), dtype=np.uint8))
+                    logger.debug(f"Using black frame for index {frame_idx}")
+                    frames.append(np.zeros((frame_height, frame_width, 3), dtype=np.uint8))
+        
+        # Debug: Log number of successfully extracted frames
+        logger.info(f"Extracted {len(frames)} frames")
 
         cap.release()
 
         # Ensure we have exactly num_frames
         while len(frames) < self.num_frames:
-            frames.append(frames[-1] if frames else np.zeros((*self.image_size, 3), dtype=np.uint8))
+            logger.debug(f"Padding with last frame or black frame to reach {self.num_frames} frames")
+            frames.append(frames[-1] if frames else np.zeros((frame_height, frame_width, 3), dtype=np.uint8))
 
         frames = np.stack(frames[:self.num_frames])
-
+        
+        # Save frames to 'frame' folder
+        self._save_frames(frames, video_path)
+        
+        # Debug: Check if frames are all zeros
+        if np.all(frames == 0):
+            logger.warning(f"All extracted frames are black for video: {video_path}")
+        
         return frames
+
+    def _save_frames(self, frames: np.ndarray, video_path: str) -> None:
+        """
+        Save frames to 'frame' folder with names derived from video_path and frame index
+        Args:
+            frames: numpy array of shape (num_frames, H, W, C) where H, W are video's original size
+            video_path: Path to video file
+        """
+        # Create 'frame' directory if it doesn't exist
+        output_dir = "frame"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Get base name of video file (without extension)
+        video_name = os.path.splitext(os.path.basename(video_path))[0]
+        
+        # Save each frame
+        for idx, frame in enumerate(frames):
+            # Construct filename: {video_name}_{idx}.png
+            filename = f"{video_name}_{idx}.png"
+            output_path = os.path.join(output_dir, filename)
+            
+            # Convert RGB back to BGR for OpenCV saving
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(output_path, frame_bgr)
+            logger.info(f"Saved frame to {output_path} with shape {frame.shape}")
 
     def _get_support_frame_indices(
         self,
