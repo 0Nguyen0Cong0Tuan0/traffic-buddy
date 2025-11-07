@@ -59,7 +59,7 @@ class VietnameseTrafficDataset(Dataset):
         sample = self.samples[idx]
 
         # Get video path
-        video_path = self.video_root / sample['video_filename']
+        video_path = self.video_root / sample['video_path']
 
         # Extract frames
         frames = self._extract_frames(

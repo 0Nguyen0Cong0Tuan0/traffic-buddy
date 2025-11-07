@@ -1,0 +1,60 @@
+# Training Configuration for Vietnamese Traffic VQA - LITE MODE
+# Optimized for weaker machines (8-12GB GPU)
+
+# Model settings - LITE MODE
+model:
+  model_name: "Qwen/Qwen2.5-VL-3B-Instruct"  # Smaller 2B model
+  mode: "lite"                               # Enable lite mode
+  use_lora: true                             # Use LoRA for efficient training
+  lora_r: 8                                  # Reduced LoRA rank for 2B model
+  lora_alpha: 16                             # Reduced LoRA alpha
+  lora_dropout: 0.05                         # LoRA dropout
+  load_in_4bit: false                        # Use 8-bit instead
+  load_in_8bit: true                         # 8-bit quantization (more compatible)
+  torch_dtype: "float16"                     # float16 (bfloat16 may not work on all GPUs)
+  cpu_offload: true                          # Enable CPU offload for tight memory
+
+# Data settings - REDUCED for weak machines
+data:
+  train_json: "data/processed/train_split.json"
+  val_json: "data/processed/val_split.json"
+  video_root: "data/"
+  num_frames: 4                             # REDUCED from 8 to 4
+  image_size: [112, 112]                    # REDUCED from 224x224 to 112x112
+  use_support_frames: true                  # Still use support frames
+
+# Training settings - OPTIMIZED for weak machines
+training:
+  output_dir: "checkpoints/qwen2vl-2b-lite"
+  num_epochs: 5                             # Keep 5 epochs
+  batch_size: 1                             # REDUCED from 2 to 1
+  eval_batch_size: 2                        # REDUCED from 4 to 2
+  gradient_accumulation_steps: 16           # INCREASED from 8 to 16 (effective batch=16)
+  learning_rate: 2.0e-4                     # Same learning rate
+  weight_decay: 0.01                        # Same weight decay
+  warmup_ratio: 0.1                         # Same warmup
+  max_grad_norm: 1.0                        # Same gradient clipping
+  
+  # Scheduler
+  scheduler_type: "cosine"                  # cosine scheduler
+  
+  # Logging and saving
+  logging_steps: 20                         # Log every 20 steps (less frequent)
+  eval_steps: 200                           # Evaluate every 200 steps
+  save_steps: 1000                          # Save less frequently
+  save_total_limit: 2                       # Keep only 2 checkpoints
+  
+  # Optimization
+  use_amp: true                             # Still use AMP
+  num_workers: 2                            # REDUCED workers (less CPU usage)
+  seed: 42                                  # Random seed
+  
+  # Augmentation
+  use_augmentation: false                   # Disable augmentation (faster)
+
+# Generation settings (for evaluation)
+generation:
+  max_new_tokens: 32                        # REDUCED from 64
+  temperature: 0.1
+  top_p: 0.9
+  do_sample: false                          # Greedy decoding

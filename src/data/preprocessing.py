@@ -101,11 +101,11 @@ class DataPreprocessor:
         for qtype, count in sorted(stats['question_types'].items(), key=lambda x: x[1], reverse=True):
             logger.info(f"  {qtype}: {count} samples ({count/stats['total_samples']*100:.1f}%)")
         logger.info(f"\nSupport frames statistics:")
-        logger.info(f"  Samples with support frames: {stats['support_frames_stats']['total']}")
-        if stats['support_frames_stats']['total'] > 0:
-            logger.info(f"  Min frames per sample: {stats['support_frames_stats']['min']}")
-            logger.info(f"  Max frames per sample: {stats['support_frames_stats']['max']}")
-            logger.info(f"  Avg frames per sample: {stats['support_frames_stats']['avg']:.2f}")
+        logger.info(f"  Samples with support frames: {stats['support_frame_stats']['total']}")
+        if stats['support_frame_stats']['total'] > 0:
+            logger.info(f"  Min frames per sample: {stats['support_frame_stats']['min']}")
+            logger.info(f"  Max frames per sample: {stats['support_frame_stats']['max']}")
+            logger.info(f"  Avg frames per sample: {stats['support_frame_stats']['avg']:.2f}")
         
         return stats
 

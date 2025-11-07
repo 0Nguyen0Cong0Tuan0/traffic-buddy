@@ -1,0 +1,61 @@
+# Training Configuration for Vietnamese Traffic VQA - FULL MODE
+# For powerful machines with 16GB+ GPU (RTX 3090, A30, A100)
+
+# Model settings - FULL MODE
+model:
+  model_name: "Qwen/Qwen2.5-VL-7B-Instruct"  # Full 7B model
+  mode: "full"                               # Enable full mode
+  use_lora: true                             # Use LoRA for efficient training
+  lora_r: 16                                 # LoRA rank
+  lora_alpha: 32                             # LoRA alpha
+  lora_dropout: 0.05                         # LoRA dropout
+  load_in_4bit: true                         # 4-bit quantization (saves memory)
+  load_in_8bit: false                        # 8-bit quantization
+  torch_dtype: "bfloat16"                    # bfloat16 for better precision
+  cpu_offload: false  
+
+# Data settings
+data:
+  train_json: "data/processed/train_split.json"
+  val_json: "data/processed/val_split.json"
+  video_root: "data/"
+  num_frames: 8                             # Number of frames per video
+  image_size: [224, 224]                    # Image size (H, W)
+  use_support_frames: true                  # Prioritize support_frames
+
+# Training settings
+training:
+  output_dir: "checkpoints/qwen2vl-7b-lora"
+  num_epochs: 5                             # Total epochs
+  batch_size: 2                             # Per-device batch size
+  eval_batch_size: 4                        # Evaluation batch size
+  gradient_accumulation_steps: 8            # Accumulate gradients (effective batch = 2*8=16)
+  learning_rate: 2.0e-4                     # Learning rate
+  weight_decay: 0.01                        # Weight decay
+  warmup_ratio: 0.1                         # Warmup ratio
+  max_grad_norm: 1.0                        # Gradient clipping
+
+  # Scheduler
+  scheduler_type: "cosine"                  # cosine or onecycle
+  
+  # Logging and saving
+  logging_steps: 10                         # Log every N steps
+  eval_steps: 100                           # Evaluate every N steps
+  save_steps: 500                           # Save checkpoint every N steps
+  save_total_limit: 3                       # Keep only N best checkpoints
+  
+  # Optimization
+  use_amp: true                             # Automatic Mixed Precision
+  num_workers: 4                            # DataLoader workers
+  seed: 42                                  # Random seed
+
+  # Augmentation
+  use_augmentation: true                    # Use data augmentation
+
+
+# Generation settings (for evaluation)
+generation:
+  max_new_tokens: 64
+  temperature: 0.1
+  top_p: 0.9
+  do_sample: false                          # Greedy decoding for consistency

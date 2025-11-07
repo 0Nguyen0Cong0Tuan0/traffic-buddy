@@ -3,11 +3,10 @@
 Main script for data preparation phase
 Usage:
     python scripts/prepare_data.py --train_json data/train/train.json \
-                                    --video_root data/train \
+                                    --video_root data/ \
                                     --output_dir data/processed \
                                     --val_ratio 0.2
 """
-
 import argparse
 import sys
 from pathlib import Path
@@ -65,7 +64,6 @@ def test_dataloader(
     logger.info(f"  IDs: {batch['ids']}")
     logger.info(f"  Frames shape: {batch['frames'].shape}")
     logger.info(f"  Frames dtype: {batch['frames'].dtype}")
-    logger.info(f"  Frames range: [{batch['frames'].min():.3f}, {batch['frames'].max():.3f}]")
     logger.info(f"\nSample 1:")
     logger.info(f"  Question: {batch['questions'][0]}")
     logger.info(f"  Choices: {batch['choices'][0]}")
@@ -89,7 +87,7 @@ def main():
     parser.add_argument(
         '--video_root',
         type=str,
-        default='data/train',
+        default='data/',
         help='Root directory containing training videos'
     )
 
