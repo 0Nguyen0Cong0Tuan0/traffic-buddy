@@ -3,29 +3,29 @@
 
 # Model settings - LITE MODE
 model:
-  model_name: "Qwen/Qwen2.5-VL-3B-Instruct"  # Smaller 2B model
-  mode: "lite"                               # Enable lite mode
+  model_name: Qwen/Qwen2-VL-2B-Instruct      # Smaller 2B model
+  mode: lite                                 # Enable lite mode
   use_lora: true                             # Use LoRA for efficient training
   lora_r: 8                                  # Reduced LoRA rank for 2B model
   lora_alpha: 16                             # Reduced LoRA alpha
   lora_dropout: 0.05                         # LoRA dropout
   load_in_4bit: false                        # Use 8-bit instead
   load_in_8bit: true                         # 8-bit quantization (more compatible)
-  torch_dtype: "float16"                     # float16 (bfloat16 may not work on all GPUs)
+  torch_dtype: float16                       # float16 (bfloat16 may not work on all GPUs)
   cpu_offload: true                          # Enable CPU offload for tight memory
 
 # Data settings - REDUCED for weak machines
 data:
-  train_json: "data/processed/train_split.json"
-  val_json: "data/processed/val_split.json"
-  video_root: "data/"
-  num_frames: 4                             # REDUCED from 8 to 4
-  image_size: [112, 112]                    # REDUCED from 224x224 to 112x112
+  train_json: data/processed/train_split.json
+  val_json: data/processed/val_split.json
+  video_root: data/
+  num_frames: 8                             
+  image_size: [224, 224]                  
   use_support_frames: true                  # Still use support frames
 
 # Training settings - OPTIMIZED for weak machines
 training:
-  output_dir: "checkpoints/qwen2vl-2b-lite"
+  output_dir: checkpoints/qwen2vl-2b-lite
   num_epochs: 5                             # Keep 5 epochs
   batch_size: 1                             # REDUCED from 2 to 1
   eval_batch_size: 2                        # REDUCED from 4 to 2
@@ -36,7 +36,7 @@ training:
   max_grad_norm: 1.0                        # Same gradient clipping
   
   # Scheduler
-  scheduler_type: "cosine"                  # cosine scheduler
+  scheduler_type: cosine                    # cosine scheduler
   
   # Logging and saving
   logging_steps: 20                         # Log every 20 steps (less frequent)
