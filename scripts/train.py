@@ -160,7 +160,7 @@ def main():
             args.config = 'configs/training_config_lite.yaml'
             logger.info("Using LITE configuration for weaker machines")
         else:
-            args.config = 'configs/training_config.yaml'
+            args.config = 'configs/training_config_full.yaml'
             logger.info("Using FULL configuration for powerful machines")
     
     # Load configuration

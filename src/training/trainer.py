@@ -62,7 +62,7 @@ class Trainer:
         self.gradient_accumulation_steps = gradient_accumulation_steps
         
         # Initialize mixed precision training
-        self.scaler = torch.amp.GradScaler() if (use_amp and torch.cuda.is_available()) else None
+        self.scaler = torch.cuda.amp.GradScaler() if (use_amp and torch.cuda.is_available()) else None
         
         # Training state
         self.global_step = 0
@@ -86,23 +86,23 @@ class Trainer:
 
         if resume_from_checkpoint:
             self._load_checkpoint(resume_from_checkpoint)
-
+        
         for epoch in range(self.current_epoch, num_epochs):
             self.current_epoch = epoch
-            logger.info(f"Epoch {epoch + 1}/{num_epochs}")
-
+            logger.info(f"\nEpoch {epoch + 1}/{num_epochs}")
+            
             # Train one epoch
             train_metrics = self._train_epoch()
-
+            
             # Evaluate
             val_metrics = self.evaluate()
-
+            
             # Log metrics
             self._log_metrics(train_metrics, val_metrics, epoch)
-
+            
             # Save checkpoint
             self._save_checkpoint(val_metrics['accuracy'])
-
+            
             # Early stopping check
             if self._should_stop_early():
                 logger.info("Early stopping triggered!")
@@ -112,7 +112,7 @@ class Trainer:
         logger.info("Training completed!")
         logger.info(f"Best validation accuracy: {self.best_val_accuracy:.4f}")
         logger.info("="*60)
-
+        
     def _train_epoch(self) -> Dict[str, float]:
         """
         Train one epoch
@@ -155,10 +155,7 @@ class Trainer:
         avg_loss = total_loss / num_batches
         return {'loss': avg_loss}
     
-    def _training_step(
-        self, 
-        batch: Dict
-    ) -> float:
+    def _training_step(self, batch: Dict) -> float:
         """
         Single training step
         """
@@ -169,12 +166,14 @@ class Trainer:
         
         # Prepare inputs
         inputs = self.model.prepare_inputs(frames, prompts, answers)
-        inputs = {k: v.to(self.device) for k, v in inputs.items() 
-                 if isinstance(v, torch.Tensor)}
+        
+        # Move inputs to device (only tensors)
+        inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                 for k, v in inputs.items()}
         
         # Forward pass with mixed precision
-        if self.use_amp:
-            with torch.amp.autocast():
+        if self.use_amp and torch.cuda.is_available():
+            with torch.cuda.amp.autocast():
                 outputs = self.model(**inputs)
                 loss = outputs.loss / self.gradient_accumulation_steps
             
@@ -187,7 +186,7 @@ class Trainer:
         
         # Gradient accumulation
         if (self.global_step + 1) % self.gradient_accumulation_steps == 0:
-            if self.use_amp:
+            if self.use_amp and torch.cuda.is_available():
                 # Unscale gradients and clip
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(
@@ -214,7 +213,9 @@ class Trainer:
     
     @torch.no_grad()
     def evaluate(self) -> Dict[str, float]:
-        """Evaluate on validation set"""
+        """
+        Evaluate on validation set
+        """
         logger.info("\nEvaluating...")
         
         self.model.eval()
@@ -239,6 +240,9 @@ class Trainer:
                 temperature=0.1,
                 do_sample=False
             )
+            
+            # Extract answer letters
+            from models.video_llava import extract_answer_letter
             
             for gen_text, true_ans, choice_list in zip(
                 generated_texts, true_answers, choices
@@ -267,7 +271,9 @@ class Trainer:
         }
     
     def _log_training_step(self, loss: float):
-        """Log training step"""
+        """
+        Log training step
+        """
         log_data = {
             'step': self.global_step,
             'epoch': self.current_epoch,
@@ -372,9 +378,7 @@ class Trainer:
         logger.info(f"Resumed from step {self.global_step}, epoch {self.current_epoch}")
     
     def _should_stop_early(self, patience: int = 5) -> bool:
-        """
-        Check if should stop early
-        """
+        """Check if should stop early"""
         if len(self.training_history) < patience:
             return False
         

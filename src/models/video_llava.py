@@ -159,17 +159,29 @@ class VietnameseTrafficVQAModel(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        pixel_values: torch.Tensor,
-        labels: Optional[torch.Tensor] = None
+        pixel_values: Optional[torch.Tensor] = None,
+        pixel_values_videos: Optional[torch.Tensor] = None,  # Qwen2.5-VL uses this
+        image_grid_thw: Optional[torch.Tensor] = None,
+        video_grid_thw: Optional[torch.Tensor] = None,
+        labels: Optional[torch.Tensor] = None,
+        **kwargs
     ):
         """
         Forward pass
         """
+        # Qwen2.5-VL uses pixel_values_videos instead of pixel_values
+        if pixel_values_videos is not None:
+            pixel_values = pixel_values_videos
+        
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             pixel_values=pixel_values,
-            labels=labels
+            pixel_values_videos=pixel_values_videos,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=video_grid_thw,
+            labels=labels,
+            **kwargs
         )
         
         return outputs
@@ -200,7 +212,7 @@ class VietnameseTrafficVQAModel(nn.Module):
         # Format prompts with video tokens
         formatted_prompts = []
         for prompt, answer in zip(prompts, answers or [None] * batch_size):
-            text = f"<|im_start|>system\nBạn là một trợ lý AI chuyên về luật giao thông Việt Nam.<|im_end|>\n"
+            text = "<|im_start|>system\nBạn là một trợ lý AI chuyên về luật giao thông Việt Nam.<|im_end|>\n"
             text += f"<|im_start|>user\n<video>\n{prompt}<|im_end|>\n"
             text += "<|im_start|>assistant\n"
             
@@ -216,6 +228,13 @@ class VietnameseTrafficVQAModel(nn.Module):
             padding=True,
             return_tensors="pt"
         )
+        
+        # For training, create labels from input_ids
+        if answers is not None and answers[0] is not None:
+            labels = inputs["input_ids"].clone()
+            # Mask padding tokens
+            labels[labels == self.processor.tokenizer.pad_token_id] = -100
+            inputs["labels"] = labels
         
         return inputs
     
