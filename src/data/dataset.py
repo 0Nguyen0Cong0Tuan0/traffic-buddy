@@ -64,6 +64,10 @@ class VietnameseTrafficDataset(Dataset):
             sample.get('support_frames', [] if self.use_support_frames else None)
         )
 
+        # Apply transforms if provided
+        if self.transform:
+            frames = self.transform(frames)
+
         # Prepare question and choices
         question = sample['question']
         choices = sample['choices']
@@ -77,7 +81,7 @@ class VietnameseTrafficDataset(Dataset):
 
         return {
             'id': sample['id'],
-            'frames': frames,  # Shape: (num_frames, H, W, C) where H, W are video's original size
+            'frames': frames,  # Shape: (num_frames, H, W, C) in [0, 255] uint8
             'question': question,
             'choices': choices,
             'prompt': prompt,
@@ -89,21 +93,24 @@ class VietnameseTrafficDataset(Dataset):
     def _extract_frames(
         self,
         video_path: str,
-        support_frames: List[float]
+        support_frames: Optional[List[float]]
     ) -> np.ndarray:
         """
         Extract frames from video at original resolution
+        
         Args:
             video_path: Path to video file
             support_frames: List of timestamps (in seconds) of important frames
+            
         Returns:
-            frames: numpy array of shape (num_frames, H, W, C) where H, W are video's original size
+            frames: numpy array of shape (num_frames, H, W, C) in [0, 255] uint8
         """
         # Debug: Check if video path exists
         logger.info(f"Attempting to open video: {video_path}")
         if not os.path.exists(video_path):
             logger.error(f"Video file does not exist: {video_path}")
-            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)  # Fallback size
+            # Return black frames as fallback
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)
         
         # Debug: Check file permissions and size
         try:
@@ -111,7 +118,7 @@ class VietnameseTrafficDataset(Dataset):
             logger.info(f"Video file size: {file_size} bytes")
         except OSError as e:
             logger.error(f"Error accessing video file: {e}")
-            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)  # Fallback size
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)
 
         # Initialize video capture
         cap = cv2.VideoCapture(video_path)
@@ -121,7 +128,7 @@ class VietnameseTrafficDataset(Dataset):
             logger.error(f"Failed to open video with OpenCV: {video_path}")
             logger.info(f"OpenCV version: {cv2.__version__}")
             logger.info(f"Available backends: {cv2.videoio_registry.getBackends()}")
-            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)  # Fallback size
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)
         
         # Get video properties
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -129,6 +136,12 @@ class VietnameseTrafficDataset(Dataset):
         # Get original video dimensions
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        if total_frames == 0 or fps == 0:
+            logger.error(f"Invalid video properties: frames={total_frames}, fps={fps}")
+            cap.release()
+            return np.zeros((self.num_frames, 224, 224, 3), dtype=np.uint8)
+
         duration = total_frames / fps if fps > 0 else 0
         logger.info(f"Video info - Total frames: {total_frames}, FPS: {fps}, Duration: {duration:.2f}s, "
                     f"Resolution: {frame_width}x{frame_height}")
@@ -138,7 +151,7 @@ class VietnameseTrafficDataset(Dataset):
             frame_indices = self._get_support_frame_indices(support_frames, fps, total_frames)
         else:
             frame_indices = np.linspace(0, total_frames - 1, self.num_frames, dtype=int)
-        
+
         # Debug: Log frame indices
         logger.info(f"Frame indices to extract: {frame_indices.tolist()}")
 
@@ -151,7 +164,7 @@ class VietnameseTrafficDataset(Dataset):
             
             if ret:
                 logger.debug(f"Successfully read frame {frame_idx}")
-                # Convert BGR to RGB, no resizing or cropping
+                # Convert BGR to RGB, keep original size
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frames.append(frame)
             else:
@@ -159,7 +172,7 @@ class VietnameseTrafficDataset(Dataset):
                 # Use last valid frame or black frame
                 if frames:
                     logger.debug(f"Using last valid frame for index {frame_idx}")
-                    frames.append(frames[-1])
+                    frames.append(frames[-1].copy())
                 else:
                     logger.debug(f"Using black frame for index {frame_idx}")
                     frames.append(np.zeros((frame_height, frame_width, 3), dtype=np.uint8))
@@ -172,7 +185,8 @@ class VietnameseTrafficDataset(Dataset):
         # Ensure we have exactly num_frames
         while len(frames) < self.num_frames:
             logger.debug(f"Padding with last frame or black frame to reach {self.num_frames} frames")
-            frames.append(frames[-1] if frames else np.zeros((frame_height, frame_width, 3), dtype=np.uint8))
+            frames.append(frames[-1].copy() if frames else 
+                         np.zeros((frame_height, frame_width, 3), dtype=np.uint8))
 
         frames = np.stack(frames[:self.num_frames])
         
@@ -263,14 +277,15 @@ class VietnameseTrafficDataset(Dataset):
             prompt += "Các lựa chọn:\n"
             for choice in choices:
                 prompt += f"{choice}\n"
-            prompt += "Đáp án:"
+            prompt += "Hãy chọn đáp án đúng (A, B, C, hoặc D):"
         
         return prompt.strip()
 
     def _extract_answer_letter(
         self,
         answer: str
-    ) -> str:
+    ) -> Optional[str]:
+        """Extract answer letter from answer string"""
         if not answer:
             return None
 
@@ -284,15 +299,21 @@ class VietnameseTrafficDataset(Dataset):
 def collate_fn(batch: List[Dict]) -> Dict:
     """
     Custom collate function for DataLoader
+    Converts numpy frames to torch tensors in the correct format
     """
-    # Stack frames
-    frames = torch.from_numpy(np.stack([item['frames'] for item in batch]))
+    # Stack frames and convert to torch tensor
+    # Input: List of numpy arrays (num_frames, H, W, C) in [0, 255] uint8
+    # Output: torch tensor (B, T, C, H, W) in [0, 1] float32
+    frames_list = [item['frames'] for item in batch]
+    
+    # Convert to torch and normalize
+    frames = torch.from_numpy(np.stack(frames_list))  # (B, T, H, W, C)
     frames = frames.permute(0, 1, 4, 2, 3)  # (B, T, C, H, W)
     frames = frames.float() / 255.0  # Normalize to [0, 1]
 
     return {
         'ids': [item['id'] for item in batch],
-        'frames': frames,
+        'frames': frames,  # (B, T, C, H, W) in [0, 1]
         'questions': [item['question'] for item in batch],
         'choices': [item['choices'] for item in batch],
         'prompts': [item['prompt'] for item in batch],

@@ -24,7 +24,7 @@ av>=10.0.0
 # Model training dependencies
 transformers==4.49.0
 accelerate>=0.24.0
-peft>=0.6.0  # For LoRA training
+peft==0.17.1  # For LoRA training
 bitsandbytes>=0.41.0  # For quantization
 sentencepiece>=0.1.99  # For tokenizer
 einops>=0.7.0  # For tensor operations
@@ -40,6 +40,7 @@ ipython>=8.14.0
 jupyter>=1.0.0
 matplotlib>=3.7.0
 seaborn>=0.12.0
+qwen-vl-utils
 
 # git+https://github.com/huggingface/transformers
 # pip install -U git+https://github.com/huggingface/transformers
