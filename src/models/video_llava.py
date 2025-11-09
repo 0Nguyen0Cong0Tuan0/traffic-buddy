@@ -14,7 +14,6 @@ from transformers import (
     AutoProcessor,
     BitsAndBytesConfig
 )
-from qwen_vl_utils import process_vision_info
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 import logging
 from typing import List, Dict, Optional
@@ -169,9 +168,9 @@ class VietnameseTrafficVQAModel(nn.Module):
             video = (video * 255.0).clamp(0, 255).byte()  # Convert to [0, 255]
             video = video.cpu().numpy()
             
-            # Convert to list of frames
-            video_frames = [video[j] for j in range(video.shape[0])]
-            videos_list.append(video_frames)
+            # Convert each frame to PIL Image
+            video_pil = [Image.fromarray(video[j]) for j in range(video.shape[0])]
+            videos_list.append(video_pil)
         
         # Create messages in Qwen2-VL format
         messages_list = []
@@ -182,7 +181,7 @@ class VietnameseTrafficVQAModel(nn.Module):
                     "content": [
                         {
                             "type": "video",
-                            "video": videos_list[idx],
+                            "video": videos_list[idx],  # List of PIL Images
                             "fps": 1.0
                         },
                         {
@@ -212,26 +211,22 @@ class VietnameseTrafficVQAModel(nn.Module):
             for msg in messages_list
         ]
         
-        # Process vision info using qwen_vl_utils
-        image_inputs_list = []
-        video_inputs_list = []
-        for messages in messages_list:
-            image_inputs, video_inputs = process_vision_info(messages)
-            image_inputs_list.append(image_inputs)
-            video_inputs_list.append(video_inputs)
-        
-        # Flatten lists (process_vision_info returns lists of lists)
-        all_images = [img for sublist in image_inputs_list for img in (sublist or [])]
-        all_videos = [vid for sublist in video_inputs_list for vid in (sublist or [])]
-        
-        # Process inputs with the processor
+        # Process inputs directly with the processor
+        # The processor handles videos (list of PIL Images) correctly
         inputs = self.processor(
             text=texts,
-            images=all_images if all_images else None,
-            videos=all_videos if all_videos else None,
+            videos=videos_list,
             padding=True,
             return_tensors="pt"
         )
+
+        logger.info(f"Processor output keys: {inputs.keys()}")
+        if 'input_ids' in inputs:
+            logger.info(f"Input_ids shape: {inputs['input_ids'].shape}")
+        if 'pixel_values_videos' in inputs:
+            logger.info(f"Pixel values videos shape: {inputs['pixel_values_videos'].shape}")
+        if 'video_grid_thw' in inputs:
+            logger.info(f"Video grid thw shape: {inputs['video_grid_thw'].shape}")
         
         # Create labels for training
         if answers is not None:
@@ -250,14 +245,21 @@ class VietnameseTrafficVQAModel(nn.Module):
                 assistant_start = input_text.find("assistant\n")
                 if assistant_start != -1:
                     # Tokenize up to assistant start
+                    prefix_text = input_text[:assistant_start + len("assistant\n")]
                     prefix_ids = self.processor.tokenizer.encode(
-                        input_text[:assistant_start + len("assistant\n")],
+                        prefix_text,
                         add_special_tokens=False
                     )
                     # Mask everything up to assistant response
                     labels[i, :len(prefix_ids)] = -100
+                else:
+                    # Fallback: mask first half of sequence
+                    logger.warning(f"Could not find 'assistant' marker in sample {i}")
+                    mid_point = len(labels[i]) // 2
+                    labels[i, :mid_point] = -100
             
             inputs["labels"] = labels
+            logger.info(f"Labels shape: {labels.shape}")
         
         return inputs
     
@@ -270,9 +272,7 @@ class VietnameseTrafficVQAModel(nn.Module):
         top_p: float = 0.9,
         do_sample: bool = False
     ) -> List[str]:
-        """
-        Generate responses for given frames and prompts
-        """
+        """Generate responses for given frames and prompts"""
         inputs = self.prepare_inputs(frames, prompts, answers=None)
         
         device = next(self.model.parameters()).device
@@ -327,7 +327,7 @@ class VietnameseTrafficVQAModel(nn.Module):
             model_name=model_path,
             use_lora=False,
             device_map=device_map,
-            torch_dtype=torch_dtype
+            dtype=torch_dtype
         )
         
         return model

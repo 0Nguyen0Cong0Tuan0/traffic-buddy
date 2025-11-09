@@ -10,9 +10,9 @@ model:
   lora_alpha: 16                             # Reduced LoRA alpha
   lora_dropout: 0.05                         # LoRA dropout
   load_in_4bit: false                        # Use 8-bit instead
-  load_in_8bit: true                         # 8-bit quantization (more compatible)
+  load_in_8bit: false                        # 8-bit quantization (more compatible)
   torch_dtype: float16                       # float16 (bfloat16 may not work on all GPUs)
-  cpu_offload: true                          # Enable CPU offload for tight memory
+  cpu_offload: True                          # Enable CPU offload for tight memory
 
 # Data settings - REDUCED for weak machines
 data:

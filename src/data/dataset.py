@@ -97,13 +97,6 @@ class VietnameseTrafficDataset(Dataset):
     ) -> np.ndarray:
         """
         Extract frames from video at original resolution
-        
-        Args:
-            video_path: Path to video file
-            support_frames: List of timestamps (in seconds) of important frames
-            
-        Returns:
-            frames: numpy array of shape (num_frames, H, W, C) in [0, 255] uint8
         """
         # Debug: Check if video path exists
         logger.info(f"Attempting to open video: {video_path}")
@@ -202,9 +195,6 @@ class VietnameseTrafficDataset(Dataset):
     def _save_frames(self, frames: np.ndarray, video_path: str) -> None:
         """
         Save frames to 'frame' folder with names derived from video_path and frame index
-        Args:
-            frames: numpy array of shape (num_frames, H, W, C) where H, W are video's original size
-            video_path: Path to video file
         """
         # Create 'frame' directory if it doesn't exist
         output_dir = "frame"

@@ -83,7 +83,6 @@ def create_dataloaders(config: dict):
         json_path=config['data']['train_json'],
         video_root=config['data']['video_root'],
         num_frames=config['data']['num_frames'],
-        image_size=tuple(config['data']['image_size']),
         use_support_frames=config['data']['use_support_frames'],
         transform=get_train_augmentation() if config['training']['use_augmentation'] else None
     )
@@ -93,7 +92,6 @@ def create_dataloaders(config: dict):
         json_path=config['data']['val_json'],
         video_root=config['data']['video_root'],
         num_frames=config['data']['num_frames'],
-        image_size=tuple(config['data']['image_size']),
         use_support_frames=config['data']['use_support_frames'],
         transform=get_val_augmentation()
     )
